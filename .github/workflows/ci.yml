@@ -121,7 +121,14 @@ jobs:
             echo "No changed files to scan."
             exit 0
           fi
-          echo "$CHANGED_FILES" | xargs bunx secretlint
+          # Filter out files covered by secretlint ignorePatterns
+          # (ignorePatterns only apply to file-discovery mode, not explicit args)
+          FILTERED=$(echo "$CHANGED_FILES" | grep -v -E '\.test\.(ts|tsx)$|\.env\.example$|^docs/superpowers/|/test-helpers/')
+          if [ -z "$FILTERED" ]; then
+            echo "All changed files are in ignore patterns."
+            exit 0
+          fi
+          echo "$FILTERED" | xargs bunx secretlint
 
   test-coverage:
     runs-on: self-hosted
