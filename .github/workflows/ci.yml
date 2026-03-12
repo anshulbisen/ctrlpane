@@ -96,3 +96,207 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run test:arch
+
+  no-secrets:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan changed files for secrets
+        run: |
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD)
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No changed files to scan."
+            exit 0
+          fi
+          echo "$CHANGED_FILES" | xargs npx secretlint
+
+  test-coverage:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Get changed source files
+        id: changed
+        run: |
+          FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD -- '*.ts' '*.tsx' | grep -v '\.test\.' | grep -v '\.d\.ts' || true)
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+      - name: Run coverage on changed files
+        if: steps.changed.outputs.files != ''
+        run: |
+          bunx vitest run --coverage --coverage.reporter=json-summary --coverage.thresholds.lines=80 --changed ${{ github.event.pull_request.base.sha }}
+      - name: Post coverage summary
+        if: always() && steps.changed.outputs.files != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let summary = 'No coverage data generated.';
+            try {
+              const coverage = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
+              const total = coverage.total;
+              summary = `### Coverage Summary\n\n` +
+                `| Metric | Coverage |\n` +
+                `|--------|----------|\n` +
+                `| Lines | ${total.lines.pct}% |\n` +
+                `| Branches | ${total.branches.pct}% |\n` +
+                `| Functions | ${total.functions.pct}% |\n` +
+                `| Statements | ${total.statements.pct}% |\n\n` +
+                `Minimum required: **80% line coverage** on changed files.`;
+            } catch (e) {
+              summary = `Coverage report not available: ${e.message}`;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: summary,
+            });
+
+  test-colocation:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check test colocation for new source files
+        run: |
+          MISSING=()
+          NEW_FILES=$(git diff --name-only --diff-filter=A ${{ github.event.pull_request.base.sha }}...HEAD -- 'apps/*/src/**/*.ts')
+          for FILE in $NEW_FILES; do
+            BASENAME=$(basename "$FILE")
+            # Skip excluded files
+            case "$BASENAME" in
+              index.ts|types.ts|constants.ts|*.d.ts) continue ;;
+            esac
+            # Skip files in generated/ directories
+            if echo "$FILE" | grep -q '/generated/'; then
+              continue
+            fi
+            # Check for corresponding test file
+            TEST_FILE="${FILE%.ts}.test.ts"
+            if [ ! -f "$TEST_FILE" ]; then
+              MISSING+=("$FILE -> expected $TEST_FILE")
+            fi
+          done
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "Missing colocated test files:"
+            for M in "${MISSING[@]}"; do
+              echo "  $M"
+            done
+            exit 1
+          fi
+          echo "All new source files have colocated tests."
+
+  protected-files:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for protected file changes
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            const changedFiles = execSync(
+              `git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD`
+            ).toString().trim().split('\n').filter(Boolean);
+
+            const protectedPatterns = [
+              /^homelab\//,
+              /^\.github\/workflows\//,
+              /^docker-compose.*\.yml$/,
+              /\/migrations\//,
+              /\/auth\//,
+              /^CLAUDE\.md$/,
+              /^AGENTS\.md$/,
+              /^\.env\.example$/,
+            ];
+
+            const matched = changedFiles.filter(f =>
+              protectedPatterns.some(p => p.test(f))
+            );
+
+            if (matched.length > 0) {
+              console.log('Protected files changed:');
+              matched.forEach(f => console.log(`  ${f}`));
+
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: ['requires-human-review'],
+              });
+              console.log('Added "requires-human-review" label.');
+            } else {
+              console.log('No protected files changed.');
+            }
+
+  docs-check:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check if code changes need doc updates
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            const changedFiles = execSync(
+              `git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD`
+            ).toString().trim().split('\n').filter(Boolean);
+
+            const codePatterns = [
+              /routes?\//,
+              /endpoints?\//,
+              /domains?\//,
+              /\/migrations\//,
+            ];
+
+            const hasCodeChanges = changedFiles.some(f =>
+              codePatterns.some(p => p.test(f))
+            );
+            const hasDocChanges = changedFiles.some(f =>
+              f.startsWith('docs/') || f.endsWith('.md')
+            );
+
+            if (hasCodeChanges && !hasDocChanges) {
+              console.log('Code changes detected in routes/endpoints/domains/migrations without doc updates.');
+
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: ['needs-docs'],
+              });
+              console.log('Added "needs-docs" label.');
+            } else {
+              console.log('Documentation check passed.');
+            }
+
+  preview-deploy:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'feat/')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Post preview deployment placeholder
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '🚧 **Preview deployment coming soon** — infrastructure setup in progress.',
+            });

@@ -3,9 +3,6 @@ name: Release
 on:
   push:
     branches: [main]
-    paths:
-      - 'apps/*/package.json'
-      - '.changeset/**'
 
 jobs:
   release:
@@ -17,7 +14,16 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
 
-      - name: Check if Version Packages commit
+      - name: Create Release PR or Publish
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          publish: echo "skip-publish"
+          version: bun run version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if deploy needed
         id: check
         run: |
           MSG=$(git log -1 --pretty=%s)

@@ -5,7 +5,7 @@ echo "=== ctrlpane Kali Bootstrap ==="
 
 # Create directory structure
 sudo mkdir -p /opt/ctrlpane/{api/releases,web/releases,backups,previews}
-sudo chown -R runner:runner /opt/ctrlpane
+sudo chown -R anshul:anshul /opt/ctrlpane
 
 # Install Bun
 if ! command -v bun &> /dev/null; then

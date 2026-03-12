@@ -5,9 +5,9 @@ Requires=docker.service
 
 [Service]
 Type=simple
-User=runner
+User=anshul
 WorkingDirectory=/opt/ctrlpane/api/current
-ExecStart=/usr/local/bin/bun run index.js
+ExecStart=/home/anshul/.bun/bin/bun run index.js
 Restart=on-failure
 RestartSec=5s
 EnvironmentFile=/opt/ctrlpane/.env

@@ -4,9 +4,9 @@ After=ctrlpane-api.service
 
 [Service]
 Type=simple
-User=runner
+User=anshul
 WorkingDirectory=/opt/ctrlpane/web/current
-ExecStart=/usr/local/bin/bun run serve.js
+ExecStart=/home/anshul/.bun/bin/bun run serve.js
 Restart=on-failure
 RestartSec=5s
 EnvironmentFile=/opt/ctrlpane/.env
