@@ -13,6 +13,8 @@
 | [ADR-004](./ADR-004-pm-hierarchy.md) | PM Hierarchy | Accepted | 2026-03-12 |
 | [ADR-005](./ADR-005-agent-first-design.md) | Agent-First Design | Accepted | 2026-03-12 |
 | [ADR-006](./ADR-006-event-architecture.md) | Event Architecture | Accepted | 2026-03-12 |
+| [ADR-007](./ADR-007-resilience-and-deployment.md) | Resilience Patterns & Deployment | Proposed | 2026-03-12 |
+| [ADR-008](./ADR-008-cicd-deployment.md) | CI/CD & Two-Machine Deployment | Accepted | 2026-03-12 |
 
 ## Template
 
