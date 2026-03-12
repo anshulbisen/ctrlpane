@@ -40,5 +40,6 @@ for slot in $(echo "$content" | jq -r '.slots | keys[]'); do
   fi
 done
 
-echo "$content" > "$REGISTRY"
+echo "$content" > "${REGISTRY}.tmp"
+mv "${REGISTRY}.tmp" "$REGISTRY"
 echo "Cleaned ${cleaned} stale slot(s)"

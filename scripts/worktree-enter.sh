@@ -68,7 +68,8 @@ gc_stale_slots() {
   done
 
   if [ "$changed" = true ]; then
-    echo "$content" > "$REGISTRY"
+    echo "$content" > "${REGISTRY}.tmp"
+    mv "${REGISTRY}.tmp" "$REGISTRY"
   fi
 }
 
@@ -187,8 +188,8 @@ INFO
 
 # --- Main ---
 main() {
-  init_registry
   acquire_lock
+  init_registry
   gc_stale_slots
 
   local slot
