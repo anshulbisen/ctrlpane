@@ -1,0 +1,18 @@
+pre-commit:
+  parallel: true
+  commands:
+    biome-check:
+      glob: "*.{js,ts,jsx,tsx,json,css}"
+      run: bunx biome check --write --staged {staged_files} && git add {staged_files}
+      stage_fixed: true
+    typecheck:
+      run: bun run typecheck
+    test:
+      run: bun run test:unit
+    arch:
+      run: bun run test:arch
+
+commit-msg:
+  commands:
+    commitlint:
+      run: bunx commitlint --edit {1}

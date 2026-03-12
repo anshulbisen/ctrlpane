@@ -1,0 +1,37 @@
+{
+  "name": "@ctrlpane/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "start": "bun run dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
+    "check": "biome check src/",
+    "check:fix": "biome check --write src/",
+    "test": "bun test",
+    "test:unit": "bun test --grep 'unit'",
+    "test:integration": "bun test --grep 'integration'"
+  },
+  "dependencies": {
+    "@ctrlpane/shared": "workspace:*",
+    "hono": "^4.7.0",
+    "effect": "^3.12.0",
+    "@effect/platform": "^0.72.0",
+    "@effect/schema": "^0.75.0",
+    "drizzle-orm": "^0.38.0",
+    "postgres": "^3.4.0",
+    "ioredis": "^5.4.0",
+    "nats": "^2.28.0",
+    "ulid": "^2.3.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "drizzle-kit": "^0.30.0",
+    "typescript": "^5.7.0"
+  }
+}

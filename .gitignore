@@ -1,7 +1,7 @@
 # Dependencies
 node_modules/
 
-# Build output
+# Build outputs
 dist/
 .turbo/
 .next/
@@ -9,29 +9,32 @@ dist/
 
 # Environment
 .env
-.env.*
-!.env.example
+.env.local
+.env.*.local
 
-# Coverage
-coverage/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-logs/
-
-# Editor
+# IDE
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+coverage/
+
+# Drizzle
+drizzle/meta/
+
 # Bun
 bun.lockb
+
+# Logs
+*.log
+logs/
 
 # Database
 *.sql.bak

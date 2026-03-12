@@ -1,0 +1,47 @@
+version: "0.5"
+
+processes:
+  infra:
+    command: docker compose up
+    readiness_probe:
+      exec:
+        command: docker compose ps --status=healthy --format '{{.Name}}' | wc -l | grep -q '4'
+      initial_delay_seconds: 5
+      period_seconds: 5
+    shutdown:
+      command: docker compose down
+      timeout_seconds: 15
+
+  api:
+    command: bun run --cwd apps/api dev
+    depends_on:
+      infra:
+        condition: process_healthy
+    readiness_probe:
+      http_get:
+        host: 127.0.0.1
+        port: 33001
+        path: /health/live
+      initial_delay_seconds: 3
+      period_seconds: 5
+    availability:
+      restart: on_failure
+      max_restarts: 3
+      backoff_seconds: 2
+
+  web:
+    command: bun run --cwd apps/web dev
+    depends_on:
+      api:
+        condition: process_healthy
+    readiness_probe:
+      http_get:
+        host: 127.0.0.1
+        port: 33000
+        path: /
+      initial_delay_seconds: 3
+      period_seconds: 5
+    availability:
+      restart: on_failure
+      max_restarts: 3
+      backoff_seconds: 2
