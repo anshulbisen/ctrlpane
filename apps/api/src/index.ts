@@ -17,7 +17,7 @@ app.use('*', requestIdMiddleware);
 app.use(
   '/api/*',
   cors({
-    origin: ['http://localhost:33000'],
+    origin: [`http://localhost:${process.env.WEB_PORT ?? 33000}`],
     allowHeaders: ['Content-Type', 'X-API-Key', 'Idempotency-Key'],
     allowMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
   }),
