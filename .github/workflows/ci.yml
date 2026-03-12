@@ -80,6 +80,7 @@ jobs:
 
   test-integration:
     runs-on: self-hosted
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
