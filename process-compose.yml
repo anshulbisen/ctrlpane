@@ -20,7 +20,7 @@ processes:
     readiness_probe:
       http_get:
         host: 127.0.0.1
-        port: 33001
+        port: ${API_PORT:-33001}
         path: /health/live
       initial_delay_seconds: 3
       period_seconds: 5
@@ -37,7 +37,7 @@ processes:
     readiness_probe:
       http_get:
         host: 127.0.0.1
-        port: 33000
+        port: ${WEB_PORT:-33000}
         path: /
       initial_delay_seconds: 3
       period_seconds: 5
