@@ -14,6 +14,12 @@ SLOTS_DIR="$PREVIEW_BASE/slots"
 DOCKER_DIR="$PREVIEW_BASE/docker"
 PR_DIR="$PREVIEW_BASE/ctrlpane/pr-${PR_NUMBER}"
 
+# Ensure systemd user session is reachable from GitHub Actions runner environment.
+# The self-hosted runner doesn't inherit D-Bus session vars, but with loginctl
+# enable-linger the user manager is running and the socket exists at the well-known path.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR}/bus}"
+
 # Port blocks per slot: slot N uses ports N4000-N4005
 # Slot 1: 34000(web) 34001(api) 34002(pg) 34003(redis) 34004(nats) 34005(centrifugo)
 # Slot 2: 35000(web) 35001(api) 35002(pg) 35003(redis) 35004(nats) 35005(centrifugo)
