@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { IdPrefix, createId } from '@ctrlpane/shared';
 import { sql as rawSql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -6,7 +7,7 @@ import { defaultDbConfig } from '../client/db-client.js';
 import * as schema from '../schema/index.js';
 
 /**
- * Seed script: creates test tenant, API key, and sample blueprint data.
+ * Seed script: creates test tenant, API key, dev session, and sample blueprint data.
  *
  * Idempotent: uses fixed IDs so re-running overwrites cleanly.
  */
@@ -29,6 +30,7 @@ async function seed() {
     // Fixed IDs for idempotent seeding
     const tenantId = 'tnt_seed_00000000000000000000000001';
     const apiKeyId = 'apk_seed_00000000000000000000000001';
+    const sessionId = 'ses_seed_00000000000000000000000001';
 
     // 1. Create test tenant
     await db
@@ -45,8 +47,8 @@ async function seed() {
       });
     console.log('  [ok] Tenant created:', tenantId);
 
-    // 2. Create test API key (hash of "ctrlpane_test_key_seed")
-    const testKeyHash = 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+    // 2. Create test API key (SHA-256 of "ctrlpane_test_key_seed")
+    const testKeyHash = '8c235ff9f0121fd4aa0be026fda796b8ab9f0dc122b5d41a040fd2f1f60b31bf';
     await db
       .insert(schema.apiKeys)
       .values({
@@ -62,6 +64,31 @@ async function seed() {
         set: { name: 'Seed API Key', keyHash: testKeyHash, keyPrefix: 'ctrlpane' },
       });
     console.log('  [ok] API Key created:', apiKeyId);
+
+    // 2b. Create dev session (known token for dev tooling)
+    const devSessionToken = 'ctrlpane_dev_session_token_00000001';
+    const devSessionTokenHash = createHash('sha256').update(devSessionToken).digest('hex');
+    const devSessionExpiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // 1 year
+    await db
+      .insert(schema.sessions)
+      .values({
+        id: sessionId,
+        tenantId,
+        tokenHash: devSessionTokenHash,
+        userAgent: 'seed-script',
+        ipAddress: '127.0.0.1',
+        expiresAt: devSessionExpiresAt,
+      })
+      .onConflictDoUpdate({
+        target: schema.sessions.id,
+        set: {
+          tokenHash: devSessionTokenHash,
+          expiresAt: devSessionExpiresAt,
+        },
+      });
+    console.log('  [ok] Dev session created:', sessionId);
+    console.log('       Token:', devSessionToken);
+    console.log('       Expires:', devSessionExpiresAt.toISOString());
 
     // 3. Bypass RLS for seeding by using raw SQL insert approach
     // (The app role has RLS enforced, so we insert directly without SET LOCAL for seed data)

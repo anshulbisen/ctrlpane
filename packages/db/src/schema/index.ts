@@ -21,3 +21,6 @@ export type { BlueprintActivityRow, NewBlueprintActivityRow } from './blueprint-
 
 export { outboxEvents } from './outbox-events.js';
 export type { OutboxEventRow, NewOutboxEventRow } from './outbox-events.js';
+
+export { sessions } from './sessions.js';
+export type { SessionRow, NewSessionRow } from './sessions.js';

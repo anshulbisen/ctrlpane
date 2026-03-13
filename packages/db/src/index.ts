@@ -8,6 +8,7 @@ export {
   blueprintComments,
   blueprintActivity,
   outboxEvents,
+  sessions,
 } from './schema/index.js';
 
 export type {
@@ -27,6 +28,8 @@ export type {
   NewBlueprintActivityRow,
   OutboxEventRow,
   NewOutboxEventRow,
+  SessionRow,
+  NewSessionRow,
 } from './schema/index.js';
 
 // Client exports
