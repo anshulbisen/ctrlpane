@@ -11,11 +11,21 @@ permissions:
   pull-requests: write
   issues: write
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  branch-name-check:
+  pre-checks:
     runs-on: self-hosted
     if: github.event_name == 'pull_request'
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+
       - name: Check branch name
         run: |
           BRANCH="${{ github.head_ref }}"
@@ -24,26 +34,6 @@ jobs:
             exit 1
           fi
 
-  commitlint:
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - name: Validate commits
-        run: bunx commitlint --from ${{ github.event.pull_request.base.sha || 'HEAD~1' }} --to HEAD
-
-  changeset-check:
-    runs-on: self-hosted
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
       - name: Check changeset
         run: |
           CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD)
@@ -54,76 +44,13 @@ jobs:
             fi
           fi
 
-  lint:
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bun run lint
-
-  typecheck:
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-
-  test-unit:
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bun run test:unit
-
-  test-integration:
-    runs-on: self-hosted
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - name: Run integration tests
-        run: bun run test:integration || bun run test:integration
-        env:
-          DOCKER_HOST: unix:///var/run/docker.sock
-
-  build:
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bun run build
-
-  test-arch:
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bun run test:arch
-
-  no-secrets:
-    runs-on: self-hosted
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - name: Scan changed files for secrets
+      - name: Scan for secrets
         run: |
           CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD)
           if [ -z "$CHANGED_FILES" ]; then
             echo "No changed files to scan."
             exit 0
           fi
-          # Filter out files covered by secretlint ignorePatterns
-          # (ignorePatterns only apply to file-discovery mode, not explicit args)
           FILTERED=$(echo "$CHANGED_FILES" | grep -v -E '\.test\.(ts|tsx)$|\.env\.example$|^docs/superpowers/|/test-helpers/|^scripts/')
           if [ -z "$FILTERED" ]; then
             echo "All changed files are in ignore patterns."
@@ -131,79 +58,18 @@ jobs:
           fi
           echo "$FILTERED" | xargs bunx secretlint
 
-  test-coverage:
-    runs-on: self-hosted
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - name: Get changed source files
-        id: changed
-        run: |
-          FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD -- 'apps/api/**/*.ts' 'apps/api/**/*.tsx' | grep -v '\.test\.' | grep -v '\.d\.ts' || true)
-          if [ -n "$FILES" ]; then
-            echo "has_files=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_files=false" >> $GITHUB_OUTPUT
-          fi
-      - name: Run coverage on changed files
-        if: steps.changed.outputs.has_files == 'true'
-        working-directory: apps/api
-        run: |
-          bunx vitest run -t 'unit' --coverage --coverage.reporter=json-summary --changed ${{ github.event.pull_request.base.sha }}
-      - name: Post coverage summary
-        if: always() && steps.changed.outputs.has_files == 'true'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            let summary = 'No coverage data generated.';
-            try {
-              const coverage = JSON.parse(fs.readFileSync('apps/api/coverage/coverage-summary.json', 'utf8'));
-              const total = coverage.total;
-              summary = `### Coverage Summary\n\n` +
-                `| Metric | Coverage |\n` +
-                `|--------|----------|\n` +
-                `| Lines | ${total.lines.pct}% |\n` +
-                `| Branches | ${total.branches.pct}% |\n` +
-                `| Functions | ${total.functions.pct}% |\n` +
-                `| Statements | ${total.statements.pct}% |\n\n` +
-                `Minimum required: **80% line coverage** on changed files.`;
-            } catch (e) {
-              summary = `Coverage report not available: ${e.message}`;
-            }
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: summary,
-            });
-
-  test-colocation:
-    runs-on: self-hosted
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Check test colocation for new source files
+      - name: Check test colocation
         run: |
           MISSING=()
           NEW_FILES=$(git diff --name-only --diff-filter=A ${{ github.event.pull_request.base.sha }}...HEAD -- 'apps/*/src/**/*.ts' 'apps/*/src/**/*.tsx')
           for FILE in $NEW_FILES; do
             BASENAME=$(basename "$FILE")
-            # Skip excluded files
             case "$BASENAME" in
               index.ts|index.tsx|types.ts|constants.ts|*.d.ts|*.test.ts|*.test.tsx) continue ;;
             esac
-            # Skip files in infrastructure/utility directories
             if echo "$FILE" | grep -qE '/(generated|infra|shared|test-helpers|lib|hooks|components|routes|domains)/'; then
               continue
             fi
-            # Check for corresponding test file
             TEST_FILE="${FILE%.ts}.test.ts"
             if [ ! -f "$TEST_FILE" ]; then
               MISSING+=("$FILE -> expected $TEST_FILE")
@@ -218,13 +84,6 @@ jobs:
           fi
           echo "All new source files have colocated tests."
 
-  protected-files:
-    runs-on: self-hosted
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: Check for protected file changes
         uses: actions/github-script@v7
         with:
@@ -264,14 +123,7 @@ jobs:
               console.log('No protected files changed.');
             }
 
-  docs-check:
-    runs-on: self-hosted
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Check if code changes need doc updates
+      - name: Check docs for code changes
         uses: actions/github-script@v7
         with:
           script: |
@@ -295,7 +147,7 @@ jobs:
             );
 
             if (hasCodeChanges && !hasDocChanges) {
-              console.log('Code changes detected in routes/endpoints/domains/migrations without doc updates.');
+              console.log('Code changes detected without doc updates.');
 
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
@@ -307,6 +159,83 @@ jobs:
             } else {
               console.log('Documentation check passed.');
             }
+
+  ci:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Validate commits
+        run: bunx commitlint --from ${{ github.event.pull_request.base.sha || 'HEAD~1' }} --to HEAD
+      - name: Lint + typecheck + unit tests + build
+        run: bunx turbo run lint typecheck test:unit build --cache-dir=/opt/ctrlpane/turbo-cache --concurrency=10
+      - name: Architecture tests
+        run: bun run test:arch
+
+  test-integration:
+    runs-on: self-hosted
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Run integration tests
+        run: bun run test:integration || bun run test:integration
+        env:
+          DOCKER_HOST: unix:///var/run/docker.sock
+
+  test-coverage:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Get changed source files
+        id: changed
+        run: |
+          FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD -- 'apps/api/**/*.ts' 'apps/api/**/*.tsx' | grep -v '\.test\.' | grep -v '\.d\.ts' || true)
+          if [ -n "$FILES" ]; then
+            echo "has_files=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_files=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Run coverage on changed files
+        if: steps.changed.outputs.has_files == 'true'
+        working-directory: apps/api
+        run: bunx vitest run -t 'unit' --coverage --coverage.reporter=json-summary --changed ${{ github.event.pull_request.base.sha }}
+      - name: Post coverage summary
+        if: always() && steps.changed.outputs.has_files == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let summary = 'No coverage data generated.';
+            try {
+              const coverage = JSON.parse(fs.readFileSync('apps/api/coverage/coverage-summary.json', 'utf8'));
+              const total = coverage.total;
+              summary = `### Coverage Summary\n\n` +
+                `| Metric | Coverage |\n` +
+                `|--------|----------|\n` +
+                `| Lines | ${total.lines.pct}% |\n` +
+                `| Branches | ${total.branches.pct}% |\n` +
+                `| Functions | ${total.functions.pct}% |\n` +
+                `| Statements | ${total.statements.pct}% |\n\n` +
+                `Minimum required: **80% line coverage** on changed files.`;
+            } catch (e) {
+              summary = `Coverage report not available: ${e.message}`;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: summary,
+            });
 
   preview-deploy:
     runs-on: self-hosted
@@ -331,7 +260,6 @@ jobs:
           if [ -f "$RESULT_FILE" ]; then
             cat "$RESULT_FILE" >> "$GITHUB_OUTPUT"
           fi
-          # Check if failure was due to no available slots
           if [ $EXIT_CODE -ne 0 ]; then
             if grep -q "No preview slots available" "/opt/previews/ctrlpane/pr-${PR_NUM}/deploy.log" 2>/dev/null; then
               echo "NO_SLOTS=true" >> "$GITHUB_OUTPUT"
@@ -383,7 +311,7 @@ jobs:
   merge-gate:
     name: merge-gate
     if: github.event_name == 'pull_request'
-    needs: [lint, typecheck, test-unit, test-arch, test-integration, build]
+    needs: [ci, test-integration]
     runs-on: ubuntu-latest
     environment: merge-gate
     steps:
