@@ -80,7 +80,7 @@ jobs:
 
       - name: Run migrations
         if: steps.check.outputs.should_release == 'true'
-        run: bun run --cwd apps/api db:migrate
+        run: bun run --cwd packages/db migrate
 
       # --- Deploy API ---
       - name: Deploy API
