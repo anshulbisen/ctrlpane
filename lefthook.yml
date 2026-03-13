@@ -13,6 +13,7 @@ pre-commit:
       run: bun run test:arch
     secretlint:
       glob: "*.{ts,tsx,js,json,yml,yaml,sh,env}"
+      exclude: "**/test-helpers/**"
       run: bunx secretlint {staged_files}
 
 commit-msg:

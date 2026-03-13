@@ -73,20 +73,22 @@ export async function createTestInfra(): Promise<TestInfra> {
       POSTGRES_PASSWORD: 'test',
     })
     .withExposedPorts(5432)
-    .withWaitStrategy(Wait.forLogMessage('database system is ready to accept connections'))
+    .withWaitStrategy(Wait.forListeningPorts())
     .start();
   containers.push(pgContainer);
 
   const redisContainer = await new GenericContainer('redis:7-alpine')
     .withExposedPorts(6379)
-    .withWaitStrategy(Wait.forLogMessage('Ready to accept connections'))
+    .withWaitStrategy(Wait.forListeningPorts())
     .start();
   containers.push(redisContainer);
 
   const pgPort = pgContainer.getMappedPort(5432);
   const redisPort = redisContainer.getMappedPort(6379);
 
+  // secretlint-disable -- dev-only test credentials
   const sql = postgres(`postgres://ctrlpane_app:test@localhost:${pgPort}/ctrlpane_test`);
+  // secretlint-enable
   const db = drizzle(sql);
   const redis = new Redis({ host: 'localhost', port: redisPort, lazyConnect: true });
 
@@ -120,12 +122,14 @@ export async function createTestDb(): Promise<
       POSTGRES_PASSWORD: 'test',
     })
     .withExposedPorts(5432)
-    .withWaitStrategy(Wait.forLogMessage('database system is ready to accept connections'))
+    .withWaitStrategy(Wait.forListeningPorts())
     .start();
 
   const pgPort = pgContainer.getMappedPort(5432);
 
+  // secretlint-disable -- dev-only test credentials
   const sql = postgres(`postgres://ctrlpane_app:test@localhost:${pgPort}/ctrlpane_test`);
+  // secretlint-enable
   const db = drizzle(sql);
 
   return {

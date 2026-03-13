@@ -10,6 +10,7 @@ export type AppEnv = {
     tenantId: string;
     apiKeyId: string;
     permissions: readonly string[];
+    authMethod: 'session' | 'api_key';
     db: DrizzleDb;
   };
 };
