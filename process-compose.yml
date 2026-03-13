@@ -5,18 +5,28 @@ processes:
     command: docker compose up
     readiness_probe:
       exec:
-        command: docker compose ps --status=healthy --format '{{.Name}}' | wc -l | grep -q '4'
-      initial_delay_seconds: 5
+        command: ./scripts/check-infra-healthy.sh
+      initial_delay_seconds: 10
       period_seconds: 5
+      failure_threshold: 10
+      timeout_seconds: 5
     shutdown:
       command: docker compose down
       timeout_seconds: 15
 
-  api:
-    command: bun run --cwd apps/api dev
+  db-setup:
+    command: bun run --cwd packages/db migrate && bun run --cwd packages/db seed
     depends_on:
       infra:
         condition: process_healthy
+    availability:
+      restart: "no"
+
+  api:
+    command: bun run --cwd apps/api dev
+    depends_on:
+      db-setup:
+        condition: process_completed_successfully
     readiness_probe:
       http_get:
         host: 127.0.0.1

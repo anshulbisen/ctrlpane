@@ -50,7 +50,10 @@ function createApp(opts: MockDbOptions = {}) {
       insert: () => ({
         values: (vals: Record<string, unknown>) => {
           insertedValues.push(vals);
-          return Promise.resolve();
+          return Object.assign(Promise.resolve(), {
+            onConflictDoNothing: () => Promise.resolve(),
+            onConflictDoUpdate: () => Promise.resolve(),
+          });
         },
       }),
       delete: () => ({
@@ -103,14 +106,21 @@ describe('unit: Auth Routes', () => {
         expect(setCookieHeader).toContain('SameSite=Strict');
         expect(setCookieHeader).toContain('Path=/');
 
-        // Verify session was inserted into DB
-        expect(insertedValues.length).toBe(1);
-        const inserted = insertedValues[0];
-        expect(inserted).toBeDefined();
-        if (inserted) {
-          expect(inserted.tenantId).toBe(SESSION_TENANT_ID);
-          expect(inserted.id).toMatch(/^ses_/);
-          expect(inserted.tokenHash).toBeDefined();
+        // Verify tenant upsert + session insert were performed
+        expect(insertedValues.length).toBe(2);
+
+        // First insert: dev tenant (upsert with onConflictDoNothing)
+        const tenantInsert = insertedValues[0];
+        expect(tenantInsert).toBeDefined();
+        expect(tenantInsert?.id).toBe(SESSION_TENANT_ID);
+
+        // Second insert: session
+        const sessionInsert = insertedValues[1];
+        expect(sessionInsert).toBeDefined();
+        if (sessionInsert) {
+          expect(sessionInsert.tenantId).toBe(SESSION_TENANT_ID);
+          expect(sessionInsert.id).toMatch(/^ses_/);
+          expect(sessionInsert.tokenHash).toBeDefined();
         }
       } finally {
         process.env.NODE_ENV = originalEnv;

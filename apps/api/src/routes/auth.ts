@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { sessions } from '@ctrlpane/db';
+import { sessions, tenants } from '@ctrlpane/db';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
@@ -33,6 +33,18 @@ export const authRoutes = new Hono<AppEnv>()
     const tokenHash = createHash('sha256').update(token).digest('hex');
     const sessionId = `ses_${ulid()}`;
     const expiresAt = new Date(Date.now() + SESSION_MAX_AGE * 1000);
+
+    // Ensure the dev tenant exists before creating the session (avoids FK violation
+    // on freshly-migrated databases that haven't been seeded).
+    await db
+      .insert(tenants)
+      .values({
+        id: DEV_TENANT_ID,
+        name: 'Dev Tenant',
+        slug: 'dev-tenant',
+        plan: 'pro',
+      })
+      .onConflictDoNothing({ target: tenants.id });
 
     await db.insert(sessions).values({
       id: sessionId,
