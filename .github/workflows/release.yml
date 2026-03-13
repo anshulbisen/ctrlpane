@@ -9,8 +9,12 @@ permissions:
   pull-requests: write
 
 jobs:
-  release:
+  changesets:
     runs-on: self-hosted
+    outputs:
+      is_release: ${{ steps.check.outputs.is_release }}
+      api_version: ${{ steps.versions.outputs.api }}
+      web_version: ${{ steps.versions.outputs.web }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,6 +28,8 @@ jobs:
         with:
           publish: echo "skip-publish"
           version: bun run version
+          createGithubReleases: false
+          commitMode: git-cli
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -37,41 +43,122 @@ jobs:
             echo "is_release=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build
+      - name: Extract versions
+        id: versions
         if: steps.check.outputs.is_release == 'true'
+        run: |
+          echo "api=$(node -p "require('./apps/api/package.json').version")" >> $GITHUB_OUTPUT
+          echo "web=$(node -p "require('./apps/web/package.json').version")" >> $GITHUB_OUTPUT
+
+  deploy:
+    needs: changesets
+    if: needs.changesets.outputs.is_release == 'true'
+    runs-on: self-hosted
+    environment: production
+    env:
+      API_VERSION: ${{ needs.changesets.outputs.api_version }}
+      WEB_VERSION: ${{ needs.changesets.outputs.web_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+
+      - name: Build
         run: bun run build
 
       - name: Backup database
-        if: steps.check.outputs.is_release == 'true'
         run: |
-          VERSION=$(node -p "require('./apps/api/package.json').version")
-          pg_dump -h localhost -p 35432 -U ctrlpane_app ctrlpane | gzip > /opt/ctrlpane/backups/api@v${VERSION}-pre-deploy.sql.gz
+          BACKUP_FILE="/opt/ctrlpane/backups/api@v${API_VERSION}-pre-deploy.sql.gz"
+          echo "Backing up database to ${BACKUP_FILE}"
+          pg_dump -h localhost -p 35432 -U ctrlpane_app ctrlpane | gzip > "${BACKUP_FILE}"
+          BACKUP_SIZE=$(stat -c%s "${BACKUP_FILE}" 2>/dev/null || stat -f%z "${BACKUP_FILE}")
+          if [ "${BACKUP_SIZE}" -lt 100 ]; then
+            echo "::error::Database backup is suspiciously small (${BACKUP_SIZE} bytes). Aborting."
+            exit 1
+          fi
+          echo "Backup complete: ${BACKUP_SIZE} bytes"
 
       - name: Run migrations
-        if: steps.check.outputs.is_release == 'true'
         run: bun run --cwd apps/api db:migrate
 
       - name: Deploy API
-        if: steps.check.outputs.is_release == 'true'
+        id: deploy-api
         run: |
-          VERSION=$(node -p "require('./apps/api/package.json').version")
-          mkdir -p /opt/ctrlpane/api/releases/v${VERSION}
-          cp -r apps/api/dist/* /opt/ctrlpane/api/releases/v${VERSION}/
-          ln -sfn releases/v${VERSION} /opt/ctrlpane/api/current
+          PREV_API=$(readlink -f /opt/ctrlpane/api/current 2>/dev/null || echo "")
+          echo "prev_api=${PREV_API}" >> $GITHUB_OUTPUT
+          mkdir -p /opt/ctrlpane/api/releases/v${API_VERSION}
+          cp -r apps/api/dist/* /opt/ctrlpane/api/releases/v${API_VERSION}/
+          ln -sfn releases/v${API_VERSION} /opt/ctrlpane/api/current
           sudo systemctl restart ctrlpane-api
 
-      - name: Deploy Web
-        if: steps.check.outputs.is_release == 'true'
+      - name: Health check API
+        id: health-api
         run: |
-          VERSION=$(node -p "require('./apps/web/package.json').version")
-          mkdir -p /opt/ctrlpane/web/releases/v${VERSION}
-          cp -r apps/web/dist/* /opt/ctrlpane/web/releases/v${VERSION}/
-          ln -sfn releases/v${VERSION} /opt/ctrlpane/web/current
+          for i in $(seq 1 10); do
+            if curl -sf http://localhost:33001/health/ready > /dev/null 2>&1; then
+              echo "API healthy after attempt ${i}"
+              exit 0
+            fi
+            echo "Attempt ${i}/10: API not ready, waiting 3s..."
+            sleep 3
+          done
+          echo "::error::API health check failed after 10 attempts"
+          exit 1
+
+      - name: Rollback API on failure
+        if: failure() && steps.deploy-api.outcome == 'success'
+        run: |
+          PREV_API="${{ steps.deploy-api.outputs.prev_api }}"
+          if [ -n "${PREV_API}" ] && [ -d "${PREV_API}" ]; then
+            echo "::warning::Rolling back API to ${PREV_API}"
+            ln -sfn "${PREV_API}" /opt/ctrlpane/api/current
+            sudo systemctl restart ctrlpane-api
+            sleep 3
+            curl -sf http://localhost:33001/health/ready || echo "::error::Rollback health check also failed"
+          else
+            echo "::error::No previous API release to rollback to"
+          fi
+
+      - name: Deploy Web
+        id: deploy-web
+        run: |
+          PREV_WEB=$(readlink -f /opt/ctrlpane/web/current 2>/dev/null || echo "")
+          echo "prev_web=${PREV_WEB}" >> $GITHUB_OUTPUT
+          mkdir -p /opt/ctrlpane/web/releases/v${WEB_VERSION}
+          cp -r apps/web/dist/* /opt/ctrlpane/web/releases/v${WEB_VERSION}/
+          ln -sfn releases/v${WEB_VERSION} /opt/ctrlpane/web/current
           sudo systemctl restart ctrlpane-web
 
-      - name: Health check
-        if: steps.check.outputs.is_release == 'true'
+      - name: Health check Web
+        id: health-web
         run: |
-          sleep 3
-          curl -f http://localhost:33001/health/ready || exit 1
-          curl -f http://localhost:33000/ || exit 1
+          for i in $(seq 1 10); do
+            if curl -sf http://localhost:33000/ > /dev/null 2>&1; then
+              echo "Web healthy after attempt ${i}"
+              exit 0
+            fi
+            echo "Attempt ${i}/10: Web not ready, waiting 3s..."
+            sleep 3
+          done
+          echo "::error::Web health check failed after 10 attempts"
+          exit 1
+
+      - name: Rollback Web on failure
+        if: failure() && steps.deploy-web.outcome == 'success'
+        run: |
+          PREV_WEB="${{ steps.deploy-web.outputs.prev_web }}"
+          if [ -n "${PREV_WEB}" ] && [ -d "${PREV_WEB}" ]; then
+            echo "::warning::Rolling back Web to ${PREV_WEB}"
+            ln -sfn "${PREV_WEB}" /opt/ctrlpane/web/current
+            sudo systemctl restart ctrlpane-web
+            sleep 3
+            curl -sf http://localhost:33000/ || echo "::error::Rollback health check also failed"
+          else
+            echo "::error::No previous Web release to rollback to"
+          fi
+
+      - name: Create Git tag
+        if: success()
+        run: |
+          git tag "v${API_VERSION}" -m "Release v${API_VERSION}"
+          git push origin "v${API_VERSION}"
