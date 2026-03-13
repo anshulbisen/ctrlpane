@@ -94,7 +94,8 @@ jobs:
           echo "prev_api=${PREV_API}" >> $GITHUB_OUTPUT
           mkdir -p /opt/ctrlpane/api/releases/v${API_VERSION}
           cp -r apps/api/dist/* /opt/ctrlpane/api/releases/v${API_VERSION}/
-          ln -sfn /opt/ctrlpane/api/releases/v${API_VERSION} /opt/ctrlpane/api/current
+          rm -f /opt/ctrlpane/api/current
+          ln -s /opt/ctrlpane/api/releases/v${API_VERSION} /opt/ctrlpane/api/current
           sudo systemctl restart ctrlpane-api
 
       - name: Health check API
@@ -117,7 +118,8 @@ jobs:
           PREV_API="${{ steps.deploy-api.outputs.prev_api }}"
           if [ -n "${PREV_API}" ] && [ -d "${PREV_API}" ]; then
             echo "::warning::Rolling back API to ${PREV_API}"
-            ln -sfn "${PREV_API}" /opt/ctrlpane/api/current
+            rm -f /opt/ctrlpane/api/current
+            ln -s "${PREV_API}" /opt/ctrlpane/api/current
             sudo systemctl restart ctrlpane-api
             sleep 3
             curl -sf http://localhost:33001/health/ready || echo "::error::Rollback health check also failed"
@@ -135,7 +137,9 @@ jobs:
           echo "prev_web=${PREV_WEB}" >> $GITHUB_OUTPUT
           mkdir -p /opt/ctrlpane/web/releases/v${WEB_VERSION}
           cp -r apps/web/dist/* /opt/ctrlpane/web/releases/v${WEB_VERSION}/
-          ln -sfn /opt/ctrlpane/web/releases/v${WEB_VERSION} /opt/ctrlpane/web/current
+          cp apps/web/serve.js /opt/ctrlpane/web/releases/v${WEB_VERSION}/
+          rm -f /opt/ctrlpane/web/current
+          ln -s /opt/ctrlpane/web/releases/v${WEB_VERSION} /opt/ctrlpane/web/current
           sudo systemctl restart ctrlpane-web
 
       - name: Health check Web
@@ -158,7 +162,8 @@ jobs:
           PREV_WEB="${{ steps.deploy-web.outputs.prev_web }}"
           if [ -n "${PREV_WEB}" ] && [ -d "${PREV_WEB}" ]; then
             echo "::warning::Rolling back Web to ${PREV_WEB}"
-            ln -sfn "${PREV_WEB}" /opt/ctrlpane/web/current
+            rm -f /opt/ctrlpane/web/current
+            ln -s "${PREV_WEB}" /opt/ctrlpane/web/current
             sudo systemctl restart ctrlpane-web
             sleep 3
             curl -sf http://localhost:33000/ || echo "::error::Rollback health check also failed"
