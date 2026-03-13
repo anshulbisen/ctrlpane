@@ -318,15 +318,25 @@ jobs:
       - name: Deploy preview
         id: deploy
         run: |
+          set +e
           /opt/previews/scripts/preview-deploy.sh \
             ${{ github.event.pull_request.number }} \
             "${{ github.head_ref }}" \
             ${{ github.event.pull_request.head.sha }} \
             "${{ github.workspace }}"
+          EXIT_CODE=$?
+          set -e
           PR_NUM=${{ github.event.pull_request.number }}
           RESULT_FILE="/opt/previews/ctrlpane/pr-${PR_NUM}/deploy-result.txt"
           if [ -f "$RESULT_FILE" ]; then
             cat "$RESULT_FILE" >> "$GITHUB_OUTPUT"
+          fi
+          # Check if failure was due to no available slots
+          if [ $EXIT_CODE -ne 0 ]; then
+            if grep -q "No preview slots available" "/opt/previews/ctrlpane/pr-${PR_NUM}/deploy.log" 2>/dev/null; then
+              echo "NO_SLOTS=true" >> "$GITHUB_OUTPUT"
+            fi
+            exit $EXIT_CODE
           fi
       - name: Post preview URL
         if: success()
@@ -359,7 +369,7 @@ jobs:
               });
             }
       - name: Handle no slots
-        if: failure()
+        if: failure() && steps.deploy.outputs.NO_SLOTS == 'true'
         uses: actions/github-script@v7
         with:
           script: |

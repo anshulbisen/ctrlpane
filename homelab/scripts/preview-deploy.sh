@@ -145,7 +145,7 @@ export VITE_API_URL="/api"
 
 # Step 7: Run migrations
 log "Running database migrations..."
-bun run --cwd apps/api db:migrate 2>&1 >&2
+bun run --cwd packages/db migrate 2>&1 >&2
 
 # Step 8: Build
 log "Building..."
